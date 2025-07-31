@@ -8,9 +8,8 @@ import random
 if not firebase_admin._apps:
     cred = credentials.Certificate("serviceAccountKey.json")
     firebase_admin.initialize_app(cred, {
-        'databaseURL': 'https://your-database-url.firebaseio.com/'  # CHANGE THIS ❤
+        'databaseURL': 'https://cvv-smartexam-v2-default-rtdb.firebaseio.com'
     })
-
 # 🌈 Set Page Config
 st.set_page_config(page_title="CVV SmartExam - Student", page_icon="🧑‍🎓", layout="centered")
 

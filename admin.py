@@ -3,12 +3,11 @@ import firebase_admin
 from firebase_admin import credentials, db
 
 # Initialize Firebase
-if not firebase_admin._apps:
+    if not firebase_admin._apps:
     cred = credentials.Certificate("serviceAccountKey.json")
     firebase_admin.initialize_app(cred, {
-        'databaseURL': 'https://cvv-smartexam-default-rtdb.firebaseio.com/'
+        'databaseURL': 'https://cvv-smartexam-v2-default-rtdb.firebaseio.com'
     })
-
 st.set_page_config(page_title="CVV SmartExam - Admin Panel", page_icon="🛡", layout="centered")
 
 st.title("🛡 CVV SmartExam - Admin Panel")
