@@ -1,124 +1,86 @@
-# student.py
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, db
 import random
 
-# Firebase Init
+# ✅ Initialize Firebase once
 if not firebase_admin._apps:
     cred = credentials.Certificate("serviceAccountKey.json")
     firebase_admin.initialize_app(cred, {
         'databaseURL': 'https://cvv-smartexam-v2-default-rtdb.firebaseio.com'
     })
-# 🌈 Set Page Config
-st.set_page_config(page_title="CVV SmartExam - Student", page_icon="🧑‍🎓", layout="centered")
 
-# 💅 UI Styling
-st.markdown("""
-    <style>
-    .main {
-        background: linear-gradient(to right, #fdfbfb, #ebedee);
-        padding: 20px;
-        border-radius: 12px;
-    }
-    h1, h2, h3 {
-        font-family: 'Segoe UI', sans-serif;
-        color: #333;
-    }
-    .stButton > button {
-        background-color: #4CAF50;
-        color: white;
-        padding: 10px 20px;
-        border-radius: 8px;
-        border: none;
-        font-size: 16px;
-        margin-top: 10px;
-    }
-    .stTextInput>div>div>input {
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #ccc;
-    }
-    .stSelectbox>div>div {
-        padding: 5px;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# 🌸 Streamlit Page Setup
+st.set_page_config(page_title="CVV SmartExam - Student", page_icon="🎓", layout="centered")
+st.title("🎓 CVV SmartExam - Student Portal")
 
-# 🎓 Title
-st.title("🎓 CVV SmartExam - Student Panel")
+# 👤 Student Login
+student_name = st.text_input("Enter your name").strip()
+batch_data = db.reference("batches").get()
+batch_options = list(batch_data.keys()) if batch_data else []
+selected_batch = st.selectbox("Select your Batch", batch_options)
 
-# 🧑‍🎓 Student Info Inputs
-name = st.text_input("Enter your name")
-batch = st.selectbox("Select your batch", list((db.reference("batches").get() or {}).keys()))
+if student_name and selected_batch:
+    subject_data = batch_data[selected_batch]
+    subject_options = list(subject_data.keys()) if subject_data else []
 
-if batch:
-    subjects_ref = db.reference(f"batches/{batch}")
-    subjects = list(subjects_ref.get().keys())
-    if subjects:
-        subject = st.selectbox("Select subject", subjects)
-    else:
-        st.warning("No subjects found in this batch yet.")
-        subject = None
-else:
-    subject = None
+    selected_subject = st.selectbox("Choose Subject", subject_options)
 
-# 🚀 Load Questions
-if st.button("Start Exam") and name and batch and subject:
-    questions_ref = db.reference(f"batches/{batch}/{subject}/questions")
-    questions_data = questions_ref.get()
+    if selected_subject:
+        st.success(f"Welcome {student_name}! You're taking the *{selected_subject}* exam 🎯")
 
-    if not questions_data:
-        st.warning("No questions available for this subject 💔")
-    else:
-        questions = list(questions_data.items())
-        random.shuffle(questions)
-        score = 0
-        user_answers = {}
+        # 🔍 Load Questions
+        questions_ref = db.reference(f"batches/{selected_batch}/{selected_subject}/questions")
+        questions = questions_ref.get()
 
-        st.subheader(f"📝 Answer the following questions:")
+        if questions:
+            st.markdown("---")
+            st.markdown("### 📋 Questions")
 
-        for i, (qid, qdata) in enumerate(questions, start=1):
-            st.write(f"{i}. {qdata['question']}")
-            answer = st.radio(
-                f"Your Answer (Q{i})", qdata['options'], key=f"q_{i}"
-            )
-            user_answers[qid] = answer
+            question_ids = list(questions.keys())
+            random.shuffle(question_ids)
 
-        if st.button("Submit Exam"):
-            result_ref = db.reference("results").child(batch).child(subject).child(name)
-            correct_count = 0
-            total = len(questions)
+            answers = {}
+            for idx, qid in enumerate(question_ids):
+                q = questions[qid]
+                st.markdown(f"*Q{idx+1}: {q['question']}*")
+                answers[qid] = st.radio("Select your answer:", q['options'], key=qid)
 
-            results_to_store = {}
+            if st.button("🎯 Submit Answers"):
+                score = 0
+                total = len(question_ids)
+                result_summary = {}
 
-            for qid, qdata in questions_data.items():
-                correct_ans = qdata['answer']
-                chosen_ans = user_answers.get(qid, "")
-                results_to_store[qid] = {
-                    "question": qdata['question'],
-                    "your_answer": chosen_ans,
-                    "correct_answer": correct_ans,
-                    "is_correct": chosen_ans == correct_ans
-                }
-                if chosen_ans == correct_ans:
-                    correct_count += 1
+                for qid in question_ids:
+                    correct = questions[qid]['answer']
+                    chosen = answers[qid]
+                    result_summary[qid] = {
+                        "question": questions[qid]['question'],
+                        "your_answer": chosen,
+                        "correct_answer": correct,
+                        "is_correct": (chosen == correct)
+                    }
+                    if chosen == correct:
+                        score += 1
 
-            result_ref.set({
-                "score": correct_count,
-                "total": total,
-                "details": results_to_store
-            })
+                # ✅ Save Result
+                db.reference(f"results/{selected_batch}/{selected_subject}/{student_name}").set({
+                    "score": score,
+                    "total": total
+                })
 
-            st.success(f"✅ You scored {correct_count} out of {total}")
-            st.write("📊 Detailed Review:")
-            for i, (qid, res) in enumerate(results_to_store.items(), start=1):
-                st.write(f"{i}. {res['question']}")
-                st.write(f"- Your Answer: {res['your_answer']}")
-                st.write(f"- Correct Answer: {res['correct_answer']}")
-                if res['is_correct']:
-                    st.success("✔ Correct")
-                else:
-                    st.error("❌ Incorrect")
-else:
-    st.info("Please fill all fields and press Start Exam.")
+                st.success(f"🎉 You scored {score} out of {total}!")
+
+                # 👁 Show Detailed Result
+                st.markdown("### 📖 Your Answers")
+                for i, qid in enumerate(question_ids):
+                    r = result_summary[qid]
+                    st.markdown(f"*Q{i+1}: {r['question']}*")
+                    st.markdown(f"- Your Answer: {r['your_answer']}")
+                    if not r['is_correct']:
+                        st.markdown(f"- ❌ Correct Answer: {r['correct_answer']}")
+                    else:
+                        st.markdown(f"- ✅ Correct!")
+
+        else:
+            st.warning("No questions available for this subject yet.")
