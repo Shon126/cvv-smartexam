@@ -7,19 +7,18 @@ if not firebase_admin._apps:
     cred = credentials.Certificate("serviceAccountKey.json")
     firebase_admin.initialize_app(cred, {
         'databaseURL': 'https://cvv-smartexam-v2-default-rtdb.asia-southeast1.firebasedatabase.app'  
-  })
+    })
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="CVV SmartExam - Admin Panel", page_icon="🛡", layout="centered")
-
 st.title("🛡 CVV SmartExam - Admin Panel")
 
 # 🔐 Admin Login
 admin_pass = st.text_input("Enter Admin Password", type="password")
-if admin_pass == "cvvadmin123":  # 🔑 Change this if needed
-    st.success("Welcome, Admin Queen! 👑💙")
+if admin_pass == "nohs126":  # password 
+    st.success("Welcome, Admin  👑💙")
 
-    # 👩‍🏫 View All Teachers
+    # 👩‍🏫 View & Manage Teachers
     st.header("👩‍🏫 All Registered Teachers")
     teachers = db.reference("teachers").get()
     if teachers:
@@ -38,6 +37,33 @@ if admin_pass == "cvvadmin123":  # 🔑 Change this if needed
 
     st.markdown("---")
 
+    # ➕ Add New Teacher
+    st.header("➕ Add New Teacher")
+    new_teacher = st.text_input("👤 Enter New Teacher Name")
+    first_time_pass = st.text_input("🔑 Set Initial Password", type="password")
+    if st.button("Add Teacher"):
+        if new_teacher and first_time_pass:
+            teacher_ref = db.reference(f"teachers/{new_teacher}")
+            if teacher_ref.get():
+                st.warning("⚠ This teacher already exists.")
+            else:
+                teacher_ref.set({"password": first_time_pass})
+                st.success(f"✅ Teacher '{new_teacher}' added successfully!")
+        else:
+            st.warning("⚠ Please enter both name and password.")
+
+    st.markdown("---")
+
+    # ❌ Remove Teacher
+    st.header("❌ Remove Teacher")
+    teacher_names = list(teachers.keys()) if teachers else []
+    teacher_to_remove = st.selectbox("Select teacher to remove", teacher_names)
+    if st.button("Remove Selected Teacher"):
+        db.reference(f"teachers/{teacher_to_remove}").delete()
+        st.error(f"🚫 Teacher '{teacher_to_remove}' removed.")
+
+    st.markdown("---")
+
     # 🏫 View/Delete Batches & Subjects
     st.header("🏫 Batches & Subjects")
     batches = db.reference("batches").get()
@@ -46,13 +72,13 @@ if admin_pass == "cvvadmin123":  # 🔑 Change this if needed
             with st.expander(f"🎓 {batch_name}"):
                 for subject_name, subject_data in subjects.items():
                     st.subheader(f"📚 {subject_name}")
-                    
+
                     # Show questions
                     questions = subject_data.get("questions", {})
                     if questions:
                         for qid, qdata in questions.items():
-                            st.markdown(f"- *Q:* {qdata.get('question', 'N/A')}")
-                            st.markdown(f"✅ *Answer:* {qdata.get('answer', 'N/A')}")
+                            st.markdown(f"- Q: {qdata.get('question', 'N/A')}")
+                            st.markdown(f"✅ Answer: {qdata.get('answer', 'N/A')}")
                             if st.button("❌ Delete this question", key=f"{qid}{batch_name}{subject_name}"):
                                 db.reference(f"batches/{batch_name}/{subject_name}/questions/{qid}").delete()
                                 st.warning("❌ Question deleted. Please refresh to see updates.")
