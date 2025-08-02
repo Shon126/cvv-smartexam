@@ -66,8 +66,11 @@ def student_panel():
                     result_summary = {}
 
                     for idx, qid in enumerate(question_keys):
-                         
-                       answers[qid] = st.radio(question_label, q['options'], key=unique_key)
+                        q = questions[qid]  
+                        question_label = f"Q{idx+1}: {q['question']}"
+                        unique_key = f"{student_name}{selected_batch}{selected_subject}{qid}{idx}"
+                        answers[qid] = st.radio(question_label, q['options'], key=unique_key)
+    
                     if st.button("🎯 Submit Answers"):
                         if result_ref.get():
                             st.error("❌ Submission blocked. You have already taken this exam.")
