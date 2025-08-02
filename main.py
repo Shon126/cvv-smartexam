@@ -66,11 +66,10 @@ def student_panel():
                     result_summary = {}
 
                     for idx, qid in enumerate(question_keys):
-                         q = questions[qid]
-                         question_label = f"Q{idx+1}: {q['question']}"
-    
-                         # Make the key super unique
-                         unique_key = f"{student_name}{selected_batch}{selected_subject}{qid}{idx}"
+                        q = questions[qid]
+                        question_label = f"Q{idx+1}: {q['question']}"
+                        # Make the key super unique
+                        unique_key = f"{student_name}{selected_batch}{selected_subject}{qid}{idx}"
     
                        answers[qid] = st.radio(question_label, q['options'], key=unique_key)
                     if st.button("🎯 Submit Answers"):
