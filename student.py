@@ -22,40 +22,42 @@ if not firebase_admin._apps:
         'databaseURL': "https://cvv-smartexam-v2-default-rtdb.asia-southeast1.firebasedatabase.app"
     })
 
+# Streamlit UI
 st.title("🎓 CVV SmartExam - Student Panel")
 
-name = st.text_input("Enter your name")
+name = st.text_input("Enter your name").strip()
 batch_data = db.reference("batches").get()
-batch = st.selectbox("Select your batch", ["Select"] + list(batch_data.keys()) if batch_data else [])
+batch_options = list(batch_data.keys()) if batch_data else []
+batch = st.selectbox("Select your batch", ["Select"] + batch_options)
 
 if name and batch != "Select":
-    # ✅ Get available subjects
-    subjects = db.reference(f"questions/{batch}").get()
-    if not subjects:
-        st.warning("No subjects available for this batch.")
+    subject_data = db.reference(f"questions/{batch}").get()
+    if not subject_data:
+        st.warning("⚠ No subjects available for this batch yet.")
         st.stop()
 
-    subject = st.selectbox("Select subject", ["Select"] + list(subjects.keys()))
-    
+    subject = st.selectbox("Select subject", ["Select"] + list(subject_data.keys()))
+
     if subject != "Select":
-        # 🔒 Check if student already submitted for this subject
-        result_ref = db.reference(f"results/{batch}/{subject}/{name}")
-        if result_ref.get():
-            st.error("⚠ You have already submitted the exam.")
+        # 🔐 Check if student already submitted
+        result_check = db.reference(f"results/{batch}/{subject}/{name}").get()
+        if result_check:
+            st.error("❌ You have already submitted this exam. Only one attempt allowed.")
             st.stop()
 
-        questions = subjects[subject]
+        questions = subject_data[subject]
         st.markdown("---")
         st.subheader(f"📘 Exam: {subject}")
-        
+
         user_answers = {}
         for i, q in enumerate(questions):
             options = q["options"]
             user_choice = st.radio(f"{i+1}. {q['question']}", options, key=i)
             user_answers[str(i)] = user_choice
 
-        if st.button("Submit Exam"):
+        if st.button("✅ Submit Exam"):
             correct_count = 0
+            wrong_count = 0
             total = len(questions)
             correct_answers = []
 
@@ -70,9 +72,11 @@ if name and batch != "Select":
                 })
                 if user == correct:
                     correct_count += 1
+                else:
+                    wrong_count += 1
 
             # Save result to Firebase
-            result_ref.set({
+            db.reference(f"results/{batch}/{subject}/{name}").set({
                 "name": name,
                 "subject": subject,
                 "score": correct_count,
@@ -80,7 +84,7 @@ if name and batch != "Select":
                 "details": correct_answers
             })
 
-            st.success("✅ Exam submitted successfully!")
+            st.success("🎉 Exam submitted successfully!")
             st.balloons()
             st.markdown(f"*Your Score:* {correct_count} / {total}")
 
