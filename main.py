@@ -3,116 +3,88 @@ import firebase_admin
 from firebase_admin import credentials, db
 import random
 
-st.cache_data.clear()
-st.cache_resource.clear()
-
+# ✅ Firebase Init (only once)
 if not firebase_admin._apps:
-    cred = credentials.Certificate({
-        "type": st.secrets["firebase"]["type"],
-        "project_id": st.secrets["firebase"]["project_id"],
-        "private_key_id": st.secrets["firebase"]["private_key_id"],
-        "private_key": st.secrets["firebase"]["private_key"],
-        "client_email": st.secrets["firebase"]["client_email"],
-        "client_id": st.secrets["firebase"]["client_id"],
-        "auth_uri": st.secrets["firebase"]["auth_uri"],
-        "token_uri": st.secrets["firebase"]["token_uri"],
-        "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"],
-        "universe_domain": st.secrets["firebase"]["universe_domain"]
-    })
+    cred = credentials.Certificate("serviceAccountKey.json")
     firebase_admin.initialize_app(cred, {
-        'databaseURL': "https://cvv-smartexam-v2-default-rtdb.asia-southeast1.firebasedatabase.app"
+        'databaseURL': 'https://cvv-smartexam-v2-default-rtdb.asia-southeast1.firebasedatabase.app'
     })
-# 🌟 Streamlit Page Config
-st.set_page_config(page_title="CVV SmartExam", page_icon="🧠", layout="centered")
-st.title("💡 CVV SmartExam")
 
-# 🔘 Role Selection
-role = st.selectbox("Select your role", ["Student", "Teacher", "Admin"])
+# 🌐 Streamlit Config
+st.set_page_config(page_title="CVV SmartExam Portal", page_icon="📘", layout="centered")
+st.title("📘 Welcome to CVV SmartExam Portal")
+
+# 🎭 Role Selector
+role = st.selectbox("Who are you?", ["Select Role", "Student", "Teacher", "Admin"])
 
 # 🎓 STUDENT PANEL
-if role == "Student":
-    st.header("🎓 Student Portal")
+def student_panel():
+    st.header("🎓 Student Panel")
     student_name = st.text_input("Enter your name").strip()
-
     batch_data = db.reference("batches").get()
     batch_options = list(batch_data.keys()) if batch_data else []
     selected_batch = st.selectbox("Select your Batch", batch_options)
 
     if student_name and selected_batch:
-        # Get available subjects for the selected batch
-        subject_data = db.reference(f"questions/{selected_batch}").get()
+        subject_data = batch_data[selected_batch]
         subject_options = list(subject_data.keys()) if subject_data else []
         selected_subject = st.selectbox("Choose Subject", subject_options)
+
         if selected_subject:
-            # 🛡 Check if already submitted
-            result_ref = db.reference(f"results/{selected_batch}/{selected_subject}/{student_name}")
-            if result_ref.get():
-                st.error("❌ You have already submitted this exam. Retaking is not allowed.")
-                st.stop()
-
             st.success(f"Welcome {student_name}! You're taking the {selected_subject} exam 🎯")
-
-            questions_ref = db.reference(f"questions/{selected_batch}/{selected_subject}")
+            questions_ref = db.reference(f"batches/{selected_batch}/{selected_subject}/questions")
             questions = questions_ref.get()
 
             if questions:
                 st.markdown("---")
                 st.markdown("### 📋 Questions")
-                question_keys = list(questions.keys())
-                random.shuffle(question_keys)
-                answers = {}
-                result_summary = {}
 
-                for idx, qid in enumerate(question_keys):
+                question_ids = list(questions.keys())
+                random.shuffle(question_ids)
+                answers = {}
+
+                for idx, qid in enumerate(question_ids):
                     q = questions[qid]
-                    question_label = f"Q{idx+1}: {q['question']}"
-                    answers[qid] = st.radio(question_label, q['options'], key=f"{student_name}{qid}{idx}")
+                    st.markdown(f"Q{idx+1}: {q['question']}")
+                    answers[qid] = st.radio("Select your answer:", q['options'], key=qid)
 
                 if st.button("🎯 Submit Answers"):
                     score = 0
-                    total = len(answers)
+                    total = len(question_ids)
+                    result_summary = {}
 
-                    for qid in answers:
+                    for qid in question_ids:
                         correct = questions[qid]['answer']
                         chosen = answers[qid]
-                        is_correct = chosen == correct
-
                         result_summary[qid] = {
                             "question": questions[qid]['question'],
                             "your_answer": chosen,
                             "correct_answer": correct,
-                            "is_correct": is_correct
+                            "is_correct": (chosen == correct)
                         }
-
-                        if is_correct:
+                        if chosen == correct:
                             score += 1
 
-                    # 📝 Save to Firebase
-                    result_ref.set({
-                        "name": student_name,
-                        "subject": selected_subject,
+                    db.reference(f"results/{selected_batch}/{selected_subject}/{student_name}").set({
                         "score": score,
-                        "total": total,
-                        "details": list(result_summary.values())
+                        "total": total
                     })
 
-                    st.success(f"✅ Submitted! You scored {score} out of {total}.")
-                    st.balloons()
-
-                    with st.expander("📊 View Your Answers"):
-                        for i, r in enumerate(result_summary.values()):
-                            st.markdown(f"*Q{i+1}: {r['question']}*")
-                            st.markdown(f"- Your Answer: {r['your_answer']}")
-                            if not r['is_correct']:
-                                st.markdown(f"- ❌ Correct Answer: {r['correct_answer']}")
-                            else:
-                                st.markdown("- ✅ Correct!")
-                            st.markdown("---")
+                    st.success(f"🎉 You scored {score} out of {total}!")
+                    st.markdown("### 📖 Your Answers")
+                    for i, qid in enumerate(question_ids):
+                        r = result_summary[qid]
+                        st.markdown(f"Q{i+1}: {r['question']}")
+                        st.markdown(f"- Your Answer: {r['your_answer']}")
+                        if not r['is_correct']:
+                            st.markdown(f"- ❌ Correct Answer: {r['correct_answer']}")
+                        else:
+                            st.markdown(f"- ✅ Correct!")
             else:
-                st.warning("🚫 No questions found for this subject.")
+                st.warning("No questions available for this subject yet.")
+
 # 👩‍🏫 TEACHER PANEL
-elif role == "Teacher":
+def teacher_panel():
     st.header("👩‍🏫 Teacher Panel")
     teacher_name = st.text_input("Enter your name").strip()
     teacher_pass = st.text_input("Enter your password", type="password")
@@ -123,6 +95,7 @@ elif role == "Teacher":
 
         if data and data.get("password") == teacher_pass:
             st.success(f"Welcome, {teacher_name}! 🌟")
+            st.subheader("🏫 Manage Batches & Subjects")
 
             batch_data = db.reference("batches").get()
             batch_options = list(batch_data.keys()) if batch_data else []
@@ -130,7 +103,7 @@ elif role == "Teacher":
 
             new_batch = ""
             if selected_batch == "➕ Create New":
-                new_batch = st.text_input("Enter new batch name (e.g., BCA2025)").strip()
+                new_batch = st.text_input("Enter new batch name").strip()
                 if st.button("Create Batch") and new_batch:
                     db.reference(f"batches/{new_batch}").set({})
                     st.success(f"✅ Batch '{new_batch}' created!")
@@ -144,7 +117,7 @@ elif role == "Teacher":
 
                 new_subject = ""
                 if selected_subject == "➕ Create New":
-                    new_subject = st.text_input("Enter new subject name (e.g., Python)").strip()
+                    new_subject = st.text_input("Enter new subject name").strip()
                     if st.button("Create Subject") and new_subject:
                         db.reference(f"batches/{new_batch}/{new_subject}/questions").set({})
                         st.success(f"✅ Subject '{new_subject}' created!")
@@ -152,8 +125,7 @@ elif role == "Teacher":
                     new_subject = selected_subject
 
                 if new_subject:
-                    st.subheader(f"📄 Managing: {new_batch} > {new_subject}")
-
+                    st.markdown("### ➕ Add Question")
                     question = st.text_area("Enter Question").strip()
                     options = [st.text_input(f"Option {i+1}", key=f"opt_{i}") for i in range(4)]
                     correct = st.selectbox("Select Correct Answer", options)
@@ -172,6 +144,7 @@ elif role == "Teacher":
 
                     st.markdown("### 👁 View & Manage Questions")
                     q_data = db.reference(f"batches/{new_batch}/{new_subject}/questions").get()
+
                     if q_data:
                         for qid, qinfo in q_data.items():
                             with st.expander(qinfo['question']):
@@ -187,6 +160,7 @@ elif role == "Teacher":
                     st.markdown("### 📊 View Student Results")
                     result_ref = db.reference(f"results/{new_batch}/{new_subject}")
                     result_data = result_ref.get()
+
                     if result_data:
                         for student, r in result_data.items():
                             st.markdown(f"👤 {student} — Score: {r['score']} / {r['total']}")
@@ -200,75 +174,75 @@ elif role == "Teacher":
             st.error("Invalid name or password ❌")
 
 # 🛡 ADMIN PANEL
-elif role == "Admin":
+def admin_panel():
     st.header("🛡 Admin Panel")
     admin_pass = st.text_input("Enter Admin Password", type="password")
+
     if admin_pass == "nohs126":
         st.success("Welcome, Admin 👑💙")
+        st.subheader("👩‍🏫 Manage Teachers")
 
-        st.header("👩‍🏫 All Registered Teachers")
         teachers = db.reference("teachers").get()
         if teachers:
             for name, details in teachers.items():
                 with st.expander(f"🧑‍🏫 {name}"):
-                    st.write(f"Current Password: {details.get('password', 'Not set')}")
+                    st.write(f"Password: {details.get('password', 'N/A')}")
                     new_pass = st.text_input(f"Reset password for {name}", key=f"pass_{name}")
-                    if st.button(f"Update Password for {name}", key=f"btn_{name}"):
-                        if new_pass:
-                            db.reference(f"teachers/{name}/password").set(new_pass)
-                            st.success(f"✅ Password updated for {name}")
-                        else:
-                            st.warning("⚠ Please enter a new password before updating.")
+                    if st.button(f"Update Password", key=f"btn_{name}"):
+                        db.reference(f"teachers/{name}/password").set(new_pass)
+                        st.success("✅ Password updated!")
         else:
-            st.info("ℹ No teachers registered yet.")
+            st.info("No teachers found.")
 
-        st.header("➕ Add New Teacher")
-        new_teacher = st.text_input("👤 Enter New Teacher Name")
-        first_time_pass = st.text_input("🔑 Set Initial Password", type="password")
+        st.subheader("➕ Add New Teacher")
+        new_teacher = st.text_input("New Teacher Name")
+        first_time_pass = st.text_input("Set Initial Password", type="password")
         if st.button("Add Teacher"):
             if new_teacher and first_time_pass:
-                teacher_ref = db.reference(f"teachers/{new_teacher}")
-                if teacher_ref.get():
-                    st.warning("⚠ This teacher already exists.")
+                ref = db.reference(f"teachers/{new_teacher}")
+                if not ref.get():
+                    ref.set({"password": first_time_pass})
+                    st.success("✅ Teacher added!")
                 else:
-                    teacher_ref.set({"password": first_time_pass})
-                    st.success(f"✅ Teacher '{new_teacher}' added successfully!")
-            else:
-                st.warning("⚠ Please enter both name and password.")
+                    st.warning("Teacher already exists.")
 
-        st.header("❌ Remove Teacher")
+        st.subheader("❌ Remove Teacher")
         teacher_names = list(teachers.keys()) if teachers else []
-        teacher_to_remove = st.selectbox("Select teacher to remove", teacher_names)
-        if st.button("Remove Selected Teacher"):
+        teacher_to_remove = st.selectbox("Select teacher", teacher_names)
+        if st.button("Remove Teacher"):
             db.reference(f"teachers/{teacher_to_remove}").delete()
-            st.error(f"🚫 Teacher '{teacher_to_remove}' removed.")
+            st.error("🚫 Teacher removed!")
 
-        st.header("🏫 Batches & Subjects")
+        st.subheader("🏫 Manage Batches")
         batches = db.reference("batches").get()
         if batches:
             for batch_name, subjects in batches.items():
                 with st.expander(f"🎓 {batch_name}"):
                     for subject_name, subject_data in subjects.items():
-                        st.subheader(f"📚 {subject_name}")
+                        st.markdown(f"#### 📚 {subject_name}")
                         questions = subject_data.get("questions", {})
                         if questions:
                             for qid, qdata in questions.items():
-                                st.markdown(f"- Q: {qdata.get('question', 'N/A')}")
-                                st.markdown(f"✅ Answer: {qdata.get('answer', 'N/A')}")
-                                if st.button("❌ Delete this question", key=f"{qid}{batch_name}{subject_name}"):
+                                st.markdown(f"- Q: {qdata['question']}")
+                                st.markdown(f"✅ A: {qdata['answer']}")
+                                if st.button("❌ Delete Question", key=f"{qid}{batch_name}{subject_name}"):
                                     db.reference(f"batches/{batch_name}/{subject_name}/questions/{qid}").delete()
-                                    st.warning("❌ Question deleted. Please refresh to see updates.")
-                        else:
-                            st.write("No questions found in this subject.")
+                                    st.warning("Deleted. Refresh to update.")
 
-                        if st.button(f"🗑 Delete Subject '{subject_name}'", key=f"del_subject_{batch_name}_{subject_name}"):
+                        if st.button(f"🗑 Delete Subject {subject_name}", key=f"del_sub_{subject_name}"):
                             db.reference(f"batches/{batch_name}/{subject_name}").delete()
-                            st.warning(f"🗑 Subject '{subject_name}' deleted from batch '{batch_name}'.")
+                            st.warning(f"Deleted subject '{subject_name}'")
 
-                    if st.button(f"🗑 Delete Entire Batch '{batch_name}'", key=f"del_batch_{batch_name}"):
+                    if st.button(f"🗑 Delete Entire Batch {batch_name}", key=f"del_batch_{batch_name}"):
                         db.reference(f"batches/{batch_name}").delete()
-                        st.error(f"🚫 Batch '{batch_name}' deleted completely.")
-        else:
-            st.info("ℹ No batches created yet.")
+                        st.error(f"Deleted batch '{batch_name}'")
     elif admin_pass:
         st.error("Wrong password, cutie ❌")
+
+# 🚦 Interface Switcher
+if role == "Student":
+    student_panel()
+elif role == "Teacher":
+    teacher_panel()
+elif role == "Admin":
+    admin_panel()
