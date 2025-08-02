@@ -38,9 +38,9 @@ def student_panel():
 
     if student_name and selected_batch:
         # 🔄 Use subjects from teacher-added question sets
-        subject_data = db.reference(f"questions/{selected_batch}").get()
+        # NEW: correct Firebase path
+        subject_data = db.reference(f"batches/{selected_batch}").get()
         subject_options = list(subject_data.keys()) if subject_data else []
-        selected_subject = st.selectbox("Choose Subject", subject_options)
 
         if selected_subject:
             # 🚫 Prevent double attempts
