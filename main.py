@@ -2,6 +2,10 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, db
 import random
+
+st.cache_data.clear()
+st.cache_resource.clear()
+
 if not firebase_admin._apps:
     cred = credentials.Certificate({
         "type": st.secrets["firebase"]["type"],
