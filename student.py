@@ -2,6 +2,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, db
 import random
+import uuid  # ✅ for unique keys
 
 # Firebase Init
 if not firebase_admin._apps:
@@ -22,10 +23,10 @@ if not firebase_admin._apps:
         'databaseURL': "https://cvv-smartexam-v2-default-rtdb.asia-southeast1.firebasedatabase.app"
     })
 
-# Streamlit UI
+# UI
 st.title("🎓 CVV SmartExam - Student Panel")
 
-name = st.text_input("Enter your name").strip()
+name = st.text_input("Enter your full name").strip()
 batch_data = db.reference("batches").get()
 batch_options = list(batch_data.keys()) if batch_data else []
 batch = st.selectbox("Select your batch", ["Select"] + batch_options)
@@ -33,65 +34,63 @@ batch = st.selectbox("Select your batch", ["Select"] + batch_options)
 if name and batch != "Select":
     subject_data = db.reference(f"questions/{batch}").get()
     if not subject_data:
-        st.warning("⚠ No subjects available for this batch yet.")
+        st.warning("⚠ No subjects available for this batch.")
         st.stop()
 
     subject = st.selectbox("Select subject", ["Select"] + list(subject_data.keys()))
 
     if subject != "Select":
-        # 🔐 Check if student already submitted
-        result_check = db.reference(f"results/{batch}/{subject}/{name}").get()
-        if result_check:
-            st.error("❌ You have already submitted this exam. Only one attempt allowed.")
+        # 🔐 Prevent re-submission
+        result_ref = db.reference(f"results/{batch}/{subject}/{name}")
+        if result_ref.get():
+            st.error("⚠ You have already submitted this exam. You can't attempt it again.")
             st.stop()
 
         questions = subject_data[subject]
+        st.subheader(f"📘 {subject} Exam")
         st.markdown("---")
-        st.subheader(f"📘 Exam: {subject}")
 
+        # Randomize questions
+        random.shuffle(questions)
         user_answers = {}
-        for i, q in enumerate(questions):
-            options = q["options"]
-            user_choice = st.radio(f"{i+1}. {q['question']}", options, key=i)
-            user_answers[str(i)] = user_choice
+
+        for idx, q in enumerate(questions):
+            question_id = str(uuid.uuid4())  # ✅ unique key to avoid reuse
+            st.markdown(f"*Q{idx+1}. {q['question']}*")
+            user_choice = st.radio("Choose one:", q['options'], key=question_id)
+            user_answers[str(idx)] = {"question": q['question'], "selected": user_choice, "correct": q['answer']}
 
         if st.button("✅ Submit Exam"):
-            correct_count = 0
-            wrong_count = 0
+            correct = sum(1 for i in user_answers if user_answers[i]['selected'] == user_answers[i]['correct'])
             total = len(questions)
-            correct_answers = []
+            details = []
 
-            for i, q in enumerate(questions):
-                correct = q["answer"]
-                user = user_answers[str(i)]
-                correct_answers.append({
-                    "question": q["question"],
-                    "your_answer": user,
-                    "correct_answer": correct,
-                    "is_correct": user == correct
+            for ans in user_answers.values():
+                details.append({
+                    "question": ans["question"],
+                    "your_answer": ans["selected"],
+                    "correct_answer": ans["correct"],
+                    "is_correct": ans["selected"] == ans["correct"]
                 })
-                if user == correct:
-                    correct_count += 1
-                else:
-                    wrong_count += 1
 
-            # Save result to Firebase
-            db.reference(f"results/{batch}/{subject}/{name}").set({
+            # ✅ Save result to Firebase
+            result_ref.set({
                 "name": name,
                 "subject": subject,
-                "score": correct_count,
+                "score": correct,
                 "total": total,
-                "details": correct_answers
+                "details": details
             })
 
-            st.success("🎉 Exam submitted successfully!")
+            st.success(f"🎉 Exam submitted! You scored {correct} out of {total}.")
             st.balloons()
-            st.markdown(f"*Your Score:* {correct_count} / {total}")
 
-            # Show detailed result
-            with st.expander("📊 View Answers"):
-                for i, q in enumerate(correct_answers):
-                    st.markdown(f"*Q{i+1}. {q['question']}*")
-                    st.markdown(f"- Your answer: {q['your_answer']}")
-                    st.markdown(f"- Correct answer: {q['correct_answer']}")
+            with st.expander("📊 View Your Answers"):
+                for i, d in enumerate(details):
+                    st.markdown(f"*Q{i+1}. {d['question']}*")
+                    st.markdown(f"- Your answer: {d['your_answer']}")
+                    if d['is_correct']:
+                        st.markdown("- ✅ Correct!")
+                    else:
+                        st.markdown(f"- ❌ Correct answer: {d['correct_answer']}")
                     st.markdown("---")
