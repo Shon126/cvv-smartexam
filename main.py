@@ -37,87 +37,83 @@ def student_panel():
     selected_batch = st.selectbox("Select your Batch", batch_options)
 
     if student_name and selected_batch:
-        # ✅ Get subjects under the selected batch
+        # ✅ Load subjects from teacher-added question sets
         subject_data = db.reference(f"batches/{selected_batch}").get()
         subject_options = list(subject_data.keys()) if subject_data else []
+        selected_subject = st.selectbox("Choose Subject", subject_options)
 
-        if subject_options:
-            selected_subject = st.selectbox("Choose Subject", subject_options)
+        if selected_subject:
+            # 🚫 Check if already attempted
+            result_ref = db.reference(f"results/{selected_batch}/{selected_subject}/{student_name}")
+            if result_ref.get():
+                st.error("❌ You have already submitted this exam. Retaking is not allowed.")
+                st.stop()
 
-            if selected_subject:
-                # 🚫 Prevent double attempts
-                result_ref = db.reference(f"results/{selected_batch}/{selected_subject}/{student_name}")
-                if result_ref.get():
-                    st.error("❌ You have already submitted this exam. Retaking is not allowed.")
-                    st.stop()
+            st.success(f"Welcome {student_name}! You're taking the {selected_subject} exam 🎯")
 
-                st.success(f"Welcome {student_name}! You're taking the {selected_subject} exam 🎯")
+            questions_ref = db.reference(f"batches/{selected_batch}/{selected_subject}/questions")
+            questions = questions_ref.get()
 
-                # 📦 Get questions from updated Firebase path
-                questions_ref = db.reference(f"batches/{selected_batch}/{selected_subject}/questions")
-                questions = questions_ref.get()
+            if questions:
+                st.markdown("---")
+                st.markdown("### 📋 Questions")
+                question_keys = list(questions.keys())
+                random.shuffle(question_keys)
+                answers = {}
+                result_summary = {}
 
-                if questions:
-                    st.markdown("---")
-                    st.markdown("### 📋 Questions")
-                    question_keys = list(questions.keys())
-                    random.shuffle(question_keys)
-                    answers = {}
-                    result_summary = {}
+                for idx, qid in enumerate(question_keys):
+                    q = questions[qid]
+                    question_label = f"Q{idx+1}: {q['question']}"
+                    unique_key = f"{student_name}{selected_batch}{selected_subject}{qid}{idx}"
+                    answers[qid] = st.radio(question_label, q['options'], key=unique_key)
 
-                    for idx, qid in enumerate(question_keys):
-                        q = questions[qid]  
-                        question_label = f"Q{idx+1}: {q['question']}"
-                        unique_key = f"{student_name}{selected_batch}{selected_subject}{qid}{idx}"
-                        answers[qid] = st.radio(question_label, q['options'], key=unique_key)
-    
-                    if st.button("🎯 Submit Answers"):
-                        if result_ref.get():
-                            st.error("❌ Submission blocked. You have already taken this exam.")
-                            st.stop()
+                if st.button("🎯 Submit Answers"):
+                    if result_ref.get():
+                        st.error("❌ Submission blocked. You have already taken this exam.")
+                        st.stop()
 
-                        score = 0
-                        total = len(answers)
+                    score = 0
+                    total = len(answers)
 
-                        for qid in answers:
-                            correct = questions[qid]['answer']
-                            chosen = answers[qid]
-                            is_correct = chosen == correct
+                    for qid in answers:
+                        correct = questions[qid]['answer']
+                        chosen = answers[qid]
+                        is_correct = chosen == correct
 
-                            result_summary[qid] = {
-                                "question": questions[qid]['question'],
-                                "your_answer": chosen,
-                                "correct_answer": correct,
-                                "is_correct": is_correct
-                            }
+                        result_summary[qid] = {
+                            "question": questions[qid]['question'],
+                            "your_answer": chosen,
+                            "correct_answer": correct,
+                            "is_correct": is_correct
+                        }
 
-                            if is_correct:
-                                score += 1
+                        if is_correct:
+                            score += 1
 
-                        result_ref.set({
-                            "name": student_name,
-                            "subject": selected_subject,
-                            "score": score,
-                            "total": total,
-                            "details": list(result_summary.values())
-                        })
+                    # 💾 Save result to Firebase
+                    result_ref.set({
+                        "name": student_name,
+                        "subject": selected_subject,
+                        "score": score,
+                        "total": total,
+                        "details": list(result_summary.values())
+                    })
 
-                        st.success(f"✅ Submitted! You scored {score} out of {total}.")
-                        st.balloons()
+                    st.success(f"✅ Submitted! You scored {score} out of {total}.")
+                    st.balloons()
 
-                        with st.expander("📊 View Your Answers"):
-                            for i, r in enumerate(result_summary.values()):
-                                st.markdown(f"Q{i+1}: {r['question']}")
-                                st.markdown(f"- Your Answer: {r['your_answer']}")
-                                if not r['is_correct']:
-                                    st.markdown(f"- ❌ Correct Answer: {r['correct_answer']}")
-                                else:
-                                    st.markdown("- ✅ Correct!")
-                                st.markdown("---")
-                else:
-                    st.warning("🚫 No questions found for this subject.")
-        else:
-            st.warning("❌ No subjects found for this batch.")
+                    with st.expander("📊 View Your Answers"):
+                        for i, r in enumerate(result_summary.values()):
+                            st.markdown(f"Q{i+1}: {r['question']}")
+                            st.markdown(f"- Your Answer: {r['your_answer']}")
+                            if not r['is_correct']:
+                                st.markdown(f"- ❌ Correct Answer: {r['correct_answer']}")
+                            else:
+                                st.markdown("- ✅ Correct!")
+                            st.markdown("---")
+            else:
+                st.warning("🚫 No questions found for this subject.")
 # 👩‍🏫 TEACHER PANEL
 def teacher_panel():
     st.header("👩‍🏫 Teacher Panel")
