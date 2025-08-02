@@ -40,10 +40,10 @@ if role == "Student":
     selected_batch = st.selectbox("Select your Batch", batch_options)
 
     if student_name and selected_batch:
+        # Get available subjects for the selected batch
         subject_data = db.reference(f"questions/{selected_batch}").get()
         subject_options = list(subject_data.keys()) if subject_data else []
         selected_subject = st.selectbox("Choose Subject", subject_options)
-
         if selected_subject:
             # 🛡 Check if already submitted
             result_ref = db.reference(f"results/{selected_batch}/{selected_subject}/{student_name}")
