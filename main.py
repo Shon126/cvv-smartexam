@@ -37,18 +37,16 @@ def student_panel():
     selected_batch = st.selectbox("Select your Batch", batch_options)
 
     if student_name and selected_batch:
-        # 🔄 Use subjects from teacher-added question sets
-        # NEW: correct Firebase path
-        subject_data = db.reference(f"batches/{selected_batch}").get()
+        # ✅ Use subjects from teacher-added batches
+        batch_ref = db.reference(f"batches/{selected_batch}")
+        subject_data = batch_ref.get()
         subject_options = list(subject_data.keys()) if subject_data else []
-
-        if selected_subject:
-            # 🚫 Prevent double attempts
-            result_ref = db.reference(f"results/{selected_batch}/{selected_subject}/{student_name}")
-            if result_ref.get():
-                st.error("❌ You have already submitted this exam. Retaking is not allowed.")
-                st.stop()
-
+        
+        if subject_options:
+            selected_subject = st.selectbox("Choose Subject", subject_options)
+        else:
+            st.warning("❌ No subjects found in this batch.")
+            st.stop()
             st.success(f"Welcome {student_name}! You're taking the {selected_subject} exam 🎯")
 
             questions_ref = db.reference(f"questions/{selected_batch}/{selected_subject}")
