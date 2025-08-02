@@ -25,15 +25,10 @@ if not firebase_admin._apps:
 st.title("🎓 CVV SmartExam - Student Panel")
 
 name = st.text_input("Enter your name")
-batch = st.selectbox("Select your batch", ["Select"] + list(db.reference("batches").get().keys()))
+batch_data = db.reference("batches").get()
+batch = st.selectbox("Select your batch", ["Select"] + list(batch_data.keys()) if batch_data else [])
 
 if name and batch != "Select":
-    # 🔒 Check if student already submitted
-    result_ref = db.reference(f"results/{batch}/{name}")
-    if result_ref.get():
-        st.error("⚠ You have already submitted the exam.")
-        st.stop()
-
     # ✅ Get available subjects
     subjects = db.reference(f"questions/{batch}").get()
     if not subjects:
@@ -43,6 +38,12 @@ if name and batch != "Select":
     subject = st.selectbox("Select subject", ["Select"] + list(subjects.keys()))
     
     if subject != "Select":
+        # 🔒 Check if student already submitted for this subject
+        result_ref = db.reference(f"results/{batch}/{subject}/{name}")
+        if result_ref.get():
+            st.error("⚠ You have already submitted the exam.")
+            st.stop()
+
         questions = subjects[subject]
         st.markdown("---")
         st.subheader(f"📘 Exam: {subject}")
@@ -55,7 +56,6 @@ if name and batch != "Select":
 
         if st.button("Submit Exam"):
             correct_count = 0
-            wrong_count = 0
             total = len(questions)
             correct_answers = []
 
@@ -70,8 +70,6 @@ if name and batch != "Select":
                 })
                 if user == correct:
                     correct_count += 1
-                else:
-                    wrong_count += 1
 
             # Save result to Firebase
             result_ref.set({
