@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import firebase_admin
 from firebase_admin import credentials, db
 import random
@@ -179,17 +180,49 @@ def teacher_panel():
                             st.error("❌ Please fill all fields before adding.")
 
                     st.markdown("### 👁 View & Manage Questions")
+                    if st.button("🔁 Refresh Page"):
+                        js = "window.location.reload();"
+                        components.html(f"<script>{js}</script>", height=0)
+
                     q_data = db.reference(f"batches/{new_batch}/{new_subject}/questions").get()
 
                     if q_data:
                         for qid, qinfo in q_data.items():
+                            if qid == "_placeholder_":
+                                continue  # Ignore dummy
+
                             with st.expander(qinfo['question']):
+                                st.write("#### Options:")
                                 for i, opt in enumerate(qinfo['options']):
                                     st.write(f"- {opt}")
                                 st.markdown(f"✅ Correct Answer: {qinfo['answer']}")
-                                if st.button(f"🗑 Delete this question", key=qid):
-                                    db.reference(f"batches/{new_batch}/{new_subject}/questions/{qid}").delete()
-                                    st.warning("❌ Question deleted! Please refresh to update.")
+
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button(f"🗑 Delete", key=f"del_{qid}"):
+                                        db.reference(f"batches/{new_batch}/{new_subject}/questions/{qid}").delete()
+                                        st.warning("❌ Deleted! Press refresh to update.")
+
+                                with col2:
+                                    if st.button(f"✏ Edit", key=f"edit_{qid}"):
+                                        new_q = st.text_area("Edit Question", value=qinfo['question'], key=f"q_{qid}")
+                                        new_opts = [st.text_input(f"Edit Option {i+1}", value=o, key=f"o_{qid}_{i}") for i, o in enumerate(qinfo['options'])]
+                                        new_correct = st.selectbox("Choose New Correct", new_opts, index=new_opts.index(qinfo['answer']), key=f"c_{qid}")
+
+                                        if st.button("💾 Save Changes", key=f"save_{qid}"):
+                                            db.reference(f"batches/{new_batch}/{new_subject}/questions/{qid}").set({
+                                                "question": new_q,
+                                                "options": new_opts,
+                                                "answer": new_correct
+                                            })
+                                            st.success("✅ Question updated! Press refresh to view.")
+
+                        # Add placeholder if all deleted
+                        updated_qs = db.reference(f"batches/{new_batch}/{new_subject}/questions").get()
+                        if not updated_qs or all(k == "_placeholder_" for k in updated_qs.keys()):
+                            db.reference(f"batches/{new_batch}/{new_subject}/questions").set({
+                                "_placeholder_": "empty"
+                            })
                     else:
                         st.info("No questions yet.")
 
