@@ -246,7 +246,10 @@ def admin_panel():
     st.header("🛡 Admin Panel")
     admin_pass = st.text_input("Enter Admin Password", type="password")
 
-    if admin_pass == "nohs1260":
+    # ✅ Fetch securely from Streamlit secrets
+    real_admin_pass = st.secrets["admin"]["password"]
+
+    if admin_pass == real_admin_pass:
         st.success("Welcome, Admin 👑💙")
         st.subheader("👩‍🏫 Manage Teachers")
 
