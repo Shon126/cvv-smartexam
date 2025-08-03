@@ -291,11 +291,14 @@ def admin_panel():
                         questions = subject_data.get("questions", {})
                         if questions:
                             for qid, qdata in questions.items():
-                                st.markdown(f"- Q: {qdata['question']}")
-                                st.markdown(f"✅ A: {qdata['answer']}")
-                                if st.button("❌ Delete Question", key=f"{qid}{batch_name}{subject_name}"):
-                                    db.reference(f"batches/{batch_name}/{subject_name}/questions/{qid}").delete()
-                                    st.warning("Deleted. Refresh to update.")
+                                if isinstance(qdata, dict) and 'question' in qdata and 'answer' in qdata:
+                                    st.markdown(f"- Q: {qdata['question']}")
+                                    st.markdown(f"✅ A: {qdata['answer']}")
+                                    if st.button("❌ Delete Question", key=f"{qid}{batch_name}{subject_name}"):
+                                        db.reference(f"batches/{batch_name}/{subject_name}/questions/{qid}").delete()
+                                        st.warning("Deleted. Refresh to update.")
+                                else:
+                                    st.markdown(f"- ⚠ Skipped corrupted or placeholder data (ID: {qid})")
 
                         if st.button(f"🗑 Delete Subject {subject_name}", key=f"del_sub_{subject_name}"):
                             db.reference(f"batches/{batch_name}/{subject_name}").delete()
@@ -306,7 +309,6 @@ def admin_panel():
                         st.error(f"Deleted batch '{batch_name}'")
     elif admin_pass:
         st.error("Wrong password, cutie ❌")
-
 # 🚦 Interface Switcher
 if role == "Student":
     student_panel()
