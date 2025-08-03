@@ -246,7 +246,7 @@ def admin_panel():
     st.header("🛡 Admin Panel")
     admin_pass = st.text_input("Enter Admin Password", type="password")
 
-    if admin_pass == "nohs126":
+    if admin_pass == "nohs1260":
         st.success("Welcome, Admin 👑💙")
         st.subheader("👩‍🏫 Manage Teachers")
 
