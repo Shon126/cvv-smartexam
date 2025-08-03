@@ -115,95 +115,97 @@ def student_panel():
             else:
                 st.warning("🚫 No questions found for this subject.")
 # 👩‍🏫 TEACHER PANEL
-def teacher_panel():
-    st.header("👩‍🏫 Teacher Panel")
-    teacher_name = st.text_input("Enter your name").strip()
-    teacher_pass = st.text_input("Enter your password", type="password")
+def student_panel():
+    st.header("🎓 Student Panel")
+    student_name = st.text_input("Enter your name").strip()
 
-    if teacher_name and teacher_pass:
-        ref = db.reference(f"teachers/{teacher_name}")
-        data = ref.get()
+    batch_data = db.reference("batches").get()
+    batch_options = list(batch_data.keys()) if batch_data else []
+    selected_batch = st.selectbox("Select your Batch", batch_options)
 
-        if data and data.get("password") == teacher_pass:
-            st.success(f"Welcome, {teacher_name}! 🌟")
-            st.subheader("🏫 Manage Batches & Subjects")
+    if student_name and selected_batch:
+        # ✅ Load subjects from teacher-added question sets
+        subject_data = db.reference(f"batches/{selected_batch}").get()
+        subject_options = list(subject_data.keys()) if subject_data else []
+        selected_subject = st.selectbox("Choose Subject", subject_options)
 
-            batch_data = db.reference("batches").get()
-            batch_options = list(batch_data.keys()) if batch_data else []
-            selected_batch = st.selectbox("Select Batch or Create New", ["➕ Create New"] + batch_options)
+        if selected_subject:
+            # 🚫 Check if already attempted
+            result_ref = db.reference(f"results/{selected_batch}/{selected_subject}/{student_name}")
+            if result_ref.get():
+                st.error("❌ You have already submitted this exam. Retaking is not allowed.")
+                st.stop()
 
-            new_batch = ""
-            if selected_batch == "➕ Create New":
-                new_batch = st.text_input("Enter new batch name").strip()
-                if st.button("Create Batch") and new_batch:
-                    db.reference(f"batches/{new_batch}").set({})
-                    st.success(f"✅ Batch '{new_batch}' created!")
+            st.success(f"Welcome {student_name}! You're taking the {selected_subject} exam 🎯")
+
+            questions_ref = db.reference(f"batches/{selected_batch}/{selected_subject}/questions")
+            questions = questions_ref.get()
+
+            # 🔧 Check for empty or placeholder-only subject
+            if questions:
+                # 🔧 Remove placeholders if they exist
+                questions = {k: v for k, v in questions.items() if k != "_placeholder_"}
+
+            if questions:
+                st.markdown("---")
+                st.markdown("### 📋 Questions")
+                question_keys = list(questions.keys())
+                random.shuffle(question_keys)
+                answers = {}
+                result_summary = {}
+
+                for idx, qid in enumerate(question_keys):
+                    q = questions[qid]
+                    question_label = f"Q{idx+1}: {q['question']}"
+                    unique_key = f"{student_name}{selected_batch}{selected_subject}{qid}{idx}"
+                    answers[qid] = st.radio(question_label, q['options'], key=unique_key)
+
+                if st.button("🎯 Submit Answers"):
+                    if result_ref.get():
+                        st.error("❌ Submission blocked. You have already taken this exam.")
+                        st.stop()
+
+                    score = 0
+                    total = len(answers)
+
+                    for qid in answers:
+                        correct = questions[qid]['answer']
+                        chosen = answers[qid]
+                        is_correct = chosen == correct
+
+                        result_summary[qid] = {
+                            "question": questions[qid]['question'],
+                            "your_answer": chosen,
+                            "correct_answer": correct,
+                            "is_correct": is_correct
+                        }
+
+                        if is_correct:
+                            score += 1
+
+                    # 💾 Save result to Firebase
+                    result_ref.set({
+                        "name": student_name,
+                        "subject": selected_subject,
+                        "score": score,
+                        "total": total,
+                        "details": list(result_summary.values())
+                    })
+
+                    st.success(f"✅ Submitted! You scored {score} out of {total}.")
+                    st.balloons()
+
+                    with st.expander("📊 View Your Answers"):
+                        for i, r in enumerate(result_summary.values()):
+                            st.markdown(f"Q{i+1}: {r['question']}")
+                            st.markdown(f"- Your Answer: {r['your_answer']}")
+                            if not r['is_correct']:
+                                st.markdown(f"- ❌ Correct Answer: {r['correct_answer']}")
+                            else:
+                                st.markdown("- ✅ Correct!")
+                            st.markdown("---")
             else:
-                new_batch = selected_batch
-
-            if new_batch:
-                subject_data = db.reference(f"batches/{new_batch}").get()
-                subject_options = list(subject_data.keys()) if subject_data else []
-                selected_subject = st.selectbox("Select Subject or Create New", ["➕ Create New"] + subject_options)
-
-                new_subject = ""
-                if selected_subject == "➕ Create New":
-                    new_subject = st.text_input("Enter new subject name").strip()
-                    if st.button("Create Subject") and new_subject:
-                        db.reference(f"batches/{new_batch}/{new_subject}/questions").set({})
-                        st.success(f"✅ Subject '{new_subject}' created!")
-                else:
-                    new_subject = selected_subject
-
-                if new_subject:
-                    st.markdown("### ➕ Add Question")
-                    question = st.text_area("Enter Question").strip()
-                    options = [st.text_input(f"Option {i+1}", key=f"opt_{i}") for i in range(4)]
-                    correct = st.selectbox("Select Correct Answer", options)
-
-                    if st.button("Add Question"):
-                        if question and all(options) and correct:
-                            q_ref = db.reference(f"batches/{new_batch}/{new_subject}/questions").push()
-                            q_ref.set({
-                                "question": question,
-                                "options": options,
-                                "answer": correct
-                            })
-                            st.success("✅ Question added!")
-                        else:
-                            st.error("❌ Please fill all fields before adding.")
-
-                    st.markdown("### 👁 View & Manage Questions")
-                    q_data = db.reference(f"batches/{new_batch}/{new_subject}/questions").get()
-
-                    if q_data:
-                        for qid, qinfo in q_data.items():
-                            with st.expander(qinfo['question']):
-                                for i, opt in enumerate(qinfo['options']):
-                                    st.write(f"- {opt}")
-                                st.markdown(f"✅ Correct Answer: {qinfo['answer']}")
-                                if st.button(f"🗑 Delete this question", key=qid):
-                                    db.reference(f"batches/{new_batch}/{new_subject}/questions/{qid}").delete()
-                                    st.warning("❌ Question deleted! Please refresh to update.")
-                    else:
-                        st.info("No questions yet.")
-
-                    st.markdown("### 📊 View Student Results")
-                    result_ref = db.reference(f"results/{new_batch}/{new_subject}")
-                    result_data = result_ref.get()
-
-                    if result_data:
-                        for student, r in result_data.items():
-                            st.markdown(f"👤 {student} — Score: {r['score']} / {r['total']}")
-                    else:
-                        st.info("No student results yet.")
-
-                    if st.button("🔁 Reset Results for this Subject"):
-                        result_ref.delete()
-                        st.success("✅ Results cleared!")
-        else:
-            st.error("Invalid name or password ❌")
-
+                st.warning("🚫 No questions found for this subject.")
 # 🛡 ADMIN PANEL
 def admin_panel():
     st.header("🛡 Admin Panel")
