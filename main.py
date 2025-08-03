@@ -55,9 +55,9 @@ def student_panel():
             questions_ref = db.reference(f"batches/{selected_batch}/{selected_subject}/questions")
             questions = questions_ref.get()
 
-            # 🔧 Check for empty or placeholder-only subject
+            
             if questions:
-                # 🔧 Remove placeholders if they exist
+                
                 questions = {k: v for k, v in questions.items() if k != "_placeholder_"}
 
             if questions:
@@ -217,7 +217,7 @@ def teacher_panel():
                                             })
                                             st.success("✅ Question updated! Press refresh to view.")
 
-                        # Add placeholder if all deleted
+                        
                         updated_qs = db.reference(f"batches/{new_batch}/{new_subject}/questions").get()
                         if not updated_qs or all(k == "_placeholder_" for k in updated_qs.keys()):
                             db.reference(f"batches/{new_batch}/{new_subject}/questions").set({
@@ -246,7 +246,7 @@ def admin_panel():
     st.header("🛡 Admin Panel")
     admin_pass = st.text_input("Enter Admin Password", type="password")
 
-    # ✅ Fetch securely from Streamlit secrets
+    
     real_admin_pass = st.secrets["admin"]["password"]
 
     if admin_pass == real_admin_pass:
