@@ -5,11 +5,20 @@ from firebase_admin import credentials, db
 import random
 import re
 
-# 🔑 Function to sanitize Firebase keys
+# -------------------------
+# Helper: sanitize Firebase keys
+# -------------------------
 def safe_key(value: str) -> str:
-    return re.sub(r'[.#$\\[\\]/]', '_', value.strip())
+    """Replace illegal Firebase RTDB path characters with underscores and tidy text."""
+    if not isinstance(value, str):
+        return ""
+    v = value.strip()
+    # replace illegal characters . # $ [ ] /
+    return re.sub(r'[.#$\[\]/]', '_', v)
 
-# 🔥 Firebase Init
+# -------------------------
+# Firebase init (unchanged)
+# -------------------------
 if not firebase_admin._apps:
     cred = credentials.Certificate({
         "type": st.secrets["firebase"]["type"],
@@ -28,106 +37,172 @@ if not firebase_admin._apps:
         'databaseURL': 'https://cvv-smartexam-v2-default-rtdb.asia-southeast1.firebasedatabase.app'
     })
 
-# 🌐 Streamlit Config
+# -------------------------
+# Streamlit page config
+# -------------------------
 st.set_page_config(page_title="CVV SmartExam Portal", page_icon="📘", layout="centered")
 st.title("📘 Welcome to CVV SmartExam Portal")
 
-# 🎭 Role Selector
+# Role selector
 role = st.selectbox("Who are you?", ["Select Role", "Student", "Teacher", "Admin"])
 
-# 🎓 STUDENT PANEL
+# -------------------------
+# STUDENT PANEL
+# -------------------------
 def student_panel():
     st.header("🎓 Student Panel")
     student_name = st.text_input("Enter your name").strip()
 
+    # load batches (show a friendly default option so selectbox always has items)
     batch_data = db.reference("batches").get()
-    batch_options = list(batch_data.keys()) if batch_data else []
+    batch_options = ["Select Batch"] + (list(batch_data.keys()) if batch_data else [])
     selected_batch = st.selectbox("Select your Batch", batch_options)
 
-    if student_name and selected_batch:
-        subject_data = db.reference(f"batches/{safe_key(selected_batch)}").get()
-        subject_options = list(subject_data.keys()) if subject_data else []
-        selected_subject = st.selectbox("Choose Subject", subject_options)
+    # proceed only when real values are selected
+    if not student_name:
+        st.info("Please enter your name to continue.")
+        return
 
-        if selected_subject:
-            safe_batch = safe_key(selected_batch)
-            safe_subject = safe_key(selected_subject)
-            safe_name = safe_key(student_name)
+    if selected_batch in ("Select Batch", "No batches available"):
+        st.info("Please choose a batch.")
+        return
 
-            result_ref = db.reference(f"results/{safe_batch}/{safe_subject}/{safe_name}")
+    # load subjects for that batch
+    subject_data = db.reference(f"batches/{safe_key(selected_batch)}").get()
+    subject_options = ["Select Subject"] + (list(subject_data.keys()) if subject_data else [])
+    selected_subject = st.selectbox("Choose Subject", subject_options)
+
+    if selected_subject in ("Select Subject", "No subjects available"):
+        st.info("Please choose a subject.")
+        return
+
+    # sanitize keys
+    safe_batch = safe_key(selected_batch)
+    safe_subject = safe_key(selected_subject)
+    safe_name = safe_key(student_name)
+
+    # check if already attempted
+    result_ref = db.reference(f"results/{safe_batch}/{safe_subject}/{safe_name}")
+    if result_ref.get():
+        st.error("❌ You have already submitted this exam. Retaking is not allowed.")
+        return
+
+    st.success(f"Hello {student_name}! You're about to take the {selected_subject} exam 🎯")
+
+    # keys for session_state to persist shuffle/order & question data
+    ss_order_key = f"order__{safe_batch}__{safe_subject}__{safe_name}"
+    ss_qdata_key = f"qdata__{safe_batch}__{safe_subject}__{safe_name}"
+    ss_started_key = f"started__{safe_batch}__{safe_subject}__{safe_name}"
+
+    # load questions from Firebase
+    questions_ref = db.reference(f"batches/{safe_batch}/{safe_subject}/questions")
+    all_questions = questions_ref.get()
+    if not all_questions:
+        st.warning("🚫 No questions found for this subject.")
+        return
+
+    # remove placeholder if present
+    questions = {k: v for k, v in (all_questions.items() if isinstance(all_questions, dict) else []) if k != "_placeholder_"}
+    if not questions:
+        st.warning("🚫 No valid questions found for this subject.")
+        return
+
+    # If not started yet, show "Start Exam" button which will set order once.
+    if ss_started_key not in st.session_state:
+        st.markdown("Press **Start Exam** when you're ready. The questions will be fixed once you start.")
+        if st.button("Start Exam 🎬"):
+            q_keys = list(questions.keys())
+            random.shuffle(q_keys)  # shuffle once
+            st.session_state[ss_order_key] = q_keys
+            st.session_state[ss_qdata_key] = questions
+            st.session_state[ss_started_key] = True
+            st.experimental_rerun()
+        return
+
+    # If started, retrieve order and qdata from session_state
+    question_keys = st.session_state.get(ss_order_key, [])
+    questions = st.session_state.get(ss_qdata_key, questions)
+
+    if not question_keys:
+        st.error("Unexpected error: question order missing. Please press Start Exam again.")
+        # clear started so user can attempt again
+        for k in (ss_order_key, ss_qdata_key, ss_started_key):
+            if k in st.session_state:
+                del st.session_state[k]
+        return
+
+    # display the questions inside a form so widget interactions don't cause mid-exam reruns
+    form_key = f"form__{safe_batch}__{safe_subject}__{safe_name}"
+    with st.form(key=form_key):
+        st.markdown("---")
+        st.markdown("### 📋 Questions")
+        # We will store answer widget keys in a dict (stable keys so Streamlit preserves values)
+        answers = {}
+        for idx, qid in enumerate(question_keys):
+            q = questions[qid]
+            # Add a placeholder first so radios start unselected
+            display_options = ["-- Select --"] + q['options']
+            widget_key = f"ans__{safe_name}__{safe_batch}__{safe_subject}__{qid}"
+            # index=0 ensures placeholder is selected visually until user chooses.
+            answers[qid] = st.radio(f"Q{idx+1}: {q['question']}", display_options, index=0, key=widget_key)
+
+        submit = st.form_submit_button("🎯 Submit Answers")
+        if submit:
+            # double-check no previous submission (race-safe)
             if result_ref.get():
-                st.error("❌ You have already submitted this exam. Retaking is not allowed.")
-                st.stop()
+                st.error("❌ Submission blocked. You have already taken this exam.")
+            else:
+                total = len(question_keys)
+                score = 0
+                result_summary = []
 
-            st.success(f"Welcome {student_name}! You're taking the {selected_subject} exam 🎯")
+                for qid in question_keys:
+                    chosen = answers[qid]
+                    # treat placeholder as unanswered (None)
+                    chosen_final = None if chosen == "-- Select --" else chosen
+                    correct = questions[qid]['answer']
+                    is_correct = (chosen_final == correct)
+                    if is_correct:
+                        score += 1
 
-            questions_ref = db.reference(f"batches/{safe_batch}/{safe_subject}/questions")
-            questions = questions_ref.get()
-
-            if questions:
-                questions = {k: v for k, v in questions.items() if k != "_placeholder_"}
-
-            if questions:
-                st.markdown("---")
-                st.markdown("### 📋 Questions")
-                question_keys = list(questions.keys())
-                random.shuffle(question_keys)
-                answers = {}
-                result_summary = {}
-
-                for idx, qid in enumerate(question_keys):
-                    q = questions[qid]
-                    question_label = f"Q{idx+1}: {q['question']}"
-                    unique_key = f"{safe_name}{safe_batch}{safe_subject}{qid}{idx}"
-                    answers[qid] = st.radio(question_label, q['options'], key=unique_key)
-
-                if st.button("🎯 Submit Answers"):
-                    if result_ref.get():
-                        st.error("❌ Submission blocked. You have already taken this exam.")
-                        st.stop()
-
-                    score = 0
-                    total = len(answers)
-
-                    for qid in answers:
-                        correct = questions[qid]['answer']
-                        chosen = answers[qid]
-                        is_correct = chosen == correct
-
-                        result_summary[qid] = {
-                            "question": questions[qid]['question'],
-                            "your_answer": chosen,
-                            "correct_answer": correct,
-                            "is_correct": is_correct
-                        }
-
-                        if is_correct:
-                            score += 1
-
-                    result_ref.set({
-                        "name": student_name,
-                        "subject": selected_subject,
-                        "score": score,
-                        "total": total,
-                        "details": list(result_summary.values())
+                    result_summary.append({
+                        "question": questions[qid]['question'],
+                        "your_answer": chosen_final,
+                        "correct_answer": correct,
+                        "is_correct": is_correct
                     })
 
-                    st.success(f"✅ Submitted! You scored {score} out of {total}.")
-                    st.balloons()
+                # Save to Firebase
+                result_ref.set({
+                    "name": student_name,
+                    "subject": selected_subject,
+                    "score": score,
+                    "total": total,
+                    "details": result_summary
+                })
 
-                    with st.expander("📊 View Your Answers"):
-                        for i, r in enumerate(result_summary.values()):
-                            st.markdown(f"Q{i+1}: {r['question']}")
-                            st.markdown(f"- Your Answer: {r['your_answer']}")
-                            if not r['is_correct']:
-                                st.markdown(f"- ❌ Correct Answer: {r['correct_answer']}")
-                            else:
-                                st.markdown("- ✅ Correct!")
-                            st.markdown("---")
-            else:
-                st.warning("🚫 No questions found for this subject.")
+                st.success(f"✅ Submitted! You scored {score} out of {total}.")
+                st.balloons()
 
-# 👩‍🏫 TEACHER PANEL
+                # show details
+                with st.expander("📊 View Your Answers"):
+                    for i, r in enumerate(result_summary):
+                        st.markdown(f"Q{i+1}: {r['question']}")
+                        st.markdown(f"- Your Answer: {r['your_answer']}")
+                        if not r['is_correct']:
+                            st.markdown(f"- ❌ Correct Answer: {r['correct_answer']}")
+                        else:
+                            st.markdown("- ✅ Correct!")
+                        st.markdown("---")
+
+                # cleanup the per-quiz session_state (keep 'started' marker removed to prevent reattempt)
+                for k in (ss_order_key, ss_qdata_key, ss_started_key):
+                    if k in st.session_state:
+                        del st.session_state[k]
+
+# -------------------------
+# TEACHER PANEL (keeps safe_key usage)
+# -------------------------
 def teacher_panel():
     st.header("👩‍🏫 Teacher Panel")
     teacher_name = st.text_input("Enter your name").strip()
@@ -196,7 +271,7 @@ def teacher_panel():
                     if q_data:
                         for qid, qinfo in q_data.items():
                             if qid == "_placeholder_":
-                                continue
+                                continue  # Ignore dummy
 
                             with st.expander(qinfo['question']):
                                 st.write("#### Options:")
@@ -248,7 +323,9 @@ def teacher_panel():
         else:
             st.error("Invalid name or password ❌")
 
-# 🛡 ADMIN PANEL
+# -------------------------
+# ADMIN PANEL (keeps safe_key usage)
+# -------------------------
 def admin_panel():
     st.header("🛡 Admin Panel")
     admin_pass = st.text_input("Enter Admin Password", type="password")
@@ -318,7 +395,9 @@ def admin_panel():
     elif admin_pass:
         st.error("Wrong password, cutie ❌")
 
-# 🚦 Interface Switcher
+# -------------------------
+# Main switch
+# -------------------------
 if role == "Student":
     student_panel()
 elif role == "Teacher":
