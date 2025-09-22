@@ -87,7 +87,7 @@ def student_panel():
                         try:
                             st.rerun()
                         except:
-                            st.experimental_rerun()
+                            st.rerun()
                 else:
                     st.markdown("### 📋 Questions")
                     answers = st.session_state.get(ss_answers_key, {})
